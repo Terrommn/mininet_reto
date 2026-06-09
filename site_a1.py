@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from common_router import Router
 
 
@@ -117,18 +118,11 @@ class SiteA1:
 
     def start_services(self, dhcp_conf, dns_conf):
         self.srv_dns.cmd(f'dnsmasq --conf-file={dns_conf} --pid-file=/tmp/dns_corp.pid')
-        self.srv_dhcp.cmd(f'dnsmasq --conf-file={dhcp_conf} --pid-file=/tmp/dhcp_corp.pid '
-                          '--dhcp-leasefile=/tmp/dhcp_corp.leases '
-                          '--log-dhcp --log-facility=/tmp/dhcp_corp.log')
-        self.srv_web.cmd('mkdir -p /tmp/web && '
-                         'echo "<h1>Datacenter A1 - Peeda+Vuul (web.corp.local)</h1>" '
-                         '> /tmp/web/index.html')
+        self.srv_dhcp.cmd(f'dnsmasq --conf-file={dhcp_conf} --pid-file=/tmp/dhcp_corp.pid --dhcp-leasefile=/tmp/dhcp_corp.leases --log-dhcp --log-facility=/tmp/dhcp_corp.log')
+        self.srv_web.cmd('mkdir -p /tmp/web && echo "<h1>Datacenter A1 - Peeda+Vuul (web.corp.local)</h1>" > /tmp/web/index.html')
         self.srv_web.cmd('cd /tmp/web && python3 -m http.server 80 > /tmp/web/http.log 2>&1 &')
-        self.srv_ftp.cmd('mkdir -p /tmp/ftp_share && '
-                         'echo "Archivo de prueba FTP - Peeda+Vuul" > /tmp/ftp_share/welcome.txt')
-        self.srv_ftp.cmd('cd /tmp/ftp_share && '
-                         'python3 -m pyftpdlib -i 0.0.0.0 -p 21 -w -u admin -P secret123 '
-                         '> /tmp/ftp_share/ftp.log 2>&1 &')
+        self.srv_ftp.cmd('mkdir -p /tmp/ftp_share && echo "Archivo de prueba FTP - Peeda+Vuul" > /tmp/ftp_share/welcome.txt')
+        self.srv_ftp.cmd('cd /tmp/ftp_share && python3 -m pyftpdlib -i 0.0.0.0 -p 21 -w -u admin -P secret123 > /tmp/ftp_share/ftp.log 2>&1 &')
 
     def start_relay(self):
         ifaces = self.subifs + ['r-a1-eth1', 'r-a1-eth2']
