@@ -1,0 +1,283 @@
+# Emulación Mininet — Red post-fusión Peeda + Vuul
+
+Emulación en Mininet de la red corporativa **hub-and-spoke** del Proyecto Integrador
+(TC2006B, ITESM). Implementa, usando **solo técnicas vistas en clase** (prácticas
+s2/s3/s7/s8/s9): segmentación por VLANs, **Router-on-a-Stick** (s3), **WAN multi-sede
+con rutas estáticas/ECMP** (s7), **doble núcleo** con servidores **dual-homed** (s7),
+**DHCP central con relay** (s8) y servicios **DNS/Web/FTP** (s8/s9).
+
+---
+
+## 1. Arquitectura
+
+```
+                                INTERNET (no emulado)
+                                       |
+   [A1 - MONTERREY  HUB  10.1.0.0/16]  |
+     hosts VLAN(10,20,30,40,80,99,110,120,130,140)
+            |  (trunk 802.1Q)
+          R-A1 (Router-on-a-Stick + borde WAN + dhcrelay)
+          /   \  uplinks /30 (172.16.0.x)
+      core1   core2   (doble núcleo, ECMP - patrón s7)
+        \\     //   dual-homing /30 (172.16.1-4.x)
+        SERVER FARM (VLAN 100, IP de servicio en loopback):
+        srv-dhcp 10.1.100.2 · srv-dns 10.1.100.3 · srv-web 10.1.100.4 · srv-ftp 10.1.100.5
+            |              |              |
+   WAN /30 |  10.99.1.0/30 | 10.99.2.0/30 | 10.99.3.0/30
+            |              |              |
+        R-A2 (GDL)     R-B1 (QRO)     R-B2 (CDMX)      <- spokes (Router-on-a-Stick)
+        10.2.0.0/16    10.3.0.0/16    10.4.0.0/16
+```
+
+**Sedes, VLANs y servidores**
+
+| Sede | Rol | Subred | VLANs (1 host c/u) |
+|---|---|---|---|
+| **A1** Monterrey | HUB | `10.1.0.0/16` | 10 Dir, 20 TI, 30 Admin, 40 Ventas, 80 RH, 99 Mgmt, 110 Imp, 120 Voz, 130 WiFi-Corp, 140 WiFi-Inv, **100 Servidores** |
+| **A2** Guadalajara | Spoke | `10.2.0.0/16` | 40, 30, 110, 120, 130, 140, 99 |
+| **B1** Querétaro | Spoke | `10.3.0.0/16` | 50 Oper, 60 At.Cliente, 70 Fin, 80 RH, 110, 120, 130, 140, 99 |
+| **B2** CDMX | Spoke | `10.4.0.0/16` | 50, 60, 110, 120, 130, 140, 99 |
+
+- **Direccionamiento:** `10.{sede}.{vlan}.0/24`, gateway `.254`, pool DHCP `.50–.150`.
+- **WAN /30:** MTY–GDL `10.99.1.0/30` (10 Mbps) · MTY–QRO `10.99.2.0/30` (10 Mbps) · MTY–CDMX `10.99.3.0/30` (20 Mbps).
+- **Servicios (4) centralizados en A1**, FQDNs internos `*.corp.local`:
+
+| Servicio | Host | IP servicio | FQDN | Notas |
+|---|---|---|---|---|
+| DHCP | srv-dhcp | 10.1.100.2 | dhcp.corp.local | dnsmasq + relay multi-sede |
+| DNS | srv-dns | 10.1.100.3 | dns.corp.local | dnsmasq (zona interna) |
+| Web | srv-web | 10.1.100.4 | web.corp.local | `http.server` :80 |
+| FTP | srv-ftp | 10.1.100.5 | ftp.corp.local | pyftpdlib :21 · user `admin` / pass `secret123` |
+
+**Nombres de nodos:** routers `r-a1/r-a2/r-b1/r-b2`, núcleo `core1/core2`, servidores
+`srv-dhcp/srv-dns/srv-web/srv-ftp`, hosts de usuario `h-{sede}-v{vlan}` (p. ej.
+`h-a1-v10`, `h-a2-v40`, `h-b1-v50`, `h-b2-v60`). La interfaz de cada host es `<host>-eth0`.
+
+---
+
+## 2. Requisitos
+
+Linux (Ubuntu recomendado) con **root/sudo**. Instala las dependencias:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mininet openvswitch-switch dnsmasq isc-dhcp-relay \
+                        dnsutils curl python3 python3-pyftpdlib
+# (alternativa para pyftpdlib si no está en apt:  pip3 install pyftpdlib)
+```
+
+> `dnsmasq`, `dhcrelay` (isc-dhcp-relay), `dig` (dnsutils), `curl` y `pyftpdlib`
+> son necesarios para los servicios. Si falta `pyftpdlib`, todo funciona salvo el FTP
+> (el error quedaría en `/tmp/ftp_share/ftp.log`).
+
+**Archivos del proyecto** (todos en esta carpeta):
+
+| Archivo | Contenido |
+|---|---|
+| `common_router.py` | Clase `Router` compartida (ip_forward, rp_filter, 8021q) |
+| `site_a1.py` | HUB Monterrey (RoaS + doble núcleo ECMP + server farm + servicios) |
+| `site_a2.py` `site_b1.py` `site_b2.py` | Spokes (Router-on-a-Stick) |
+| `master_wan.py` | Integrador: 1 sola red Mininet, WAN, rutas, servicios, CLI |
+
+---
+
+## 3. Ejecutar
+
+```bash
+sudo mn -c                       # limpia restos de cualquier corrida previa
+sudo python3 master_wan.py       # levanta la red y abre la CLI de Mininet (mininet>)
+```
+
+Al terminar verás el prompt `mininet>`. **Todos los comandos de prueba siguientes se
+escriben en ese prompt.** Para salir: `exit` (al final hace `net.stop()` automático).
+
+> Convención de la CLI: `nodo comando` ejecuta en ese nodo (ej. `h-a1-v10 ip a`);
+> `sh comando` ejecuta en el host raíz (ej. `sh ovs-vsctl show`).
+
+---
+
+## 4. Pruebas paso a paso
+
+### 4.0 — Verificar que la red levantó
+
+```text
+mininet> nodes
+mininet> dump
+```
+**Esperado:** aparecen los 4 routers, `core1/core2`, los 4 `srv-*`, los switches
+`sw-a1/sw-a2/sw-b1/sw-b2` y todos los hosts `h-*`.
+
+### 4.1 — Inter-VLAN local (Router-on-a-Stick, s3)
+
+Los gateways `.254` existen desde el arranque (no dependen de DHCP):
+
+```text
+mininet> h-a1-v10 ping -c2 10.1.10.254      # su propio gateway
+mininet> r-a2 ping -c2 10.2.40.254          # gateway local del spoke
+```
+**Esperado:** 0% packet loss. (Confirma subinterfaces 802.1Q + tags OVS.)
+
+### 4.2 — WAN hub-and-spoke (rutas estáticas, s7)
+
+```text
+mininet> r-a2 ping -c2 10.99.1.1            # spoke -> HUB por el enlace /30
+mininet> r-b1 ping -c2 10.1.100.4           # spoke -> servidor en A1 (vía HUB)
+mininet> r-a2 ping -c2 10.3.50.254          # spoke A2 -> gateway en spoke B1 (tránsito por HUB)
+```
+**Esperado:** 0% loss. (Confirma WAN + tránsito spoke↔spoke por el hub.)
+
+### 4.3 — DHCP central con relay multi-sede (s8) ⭐
+
+Primero un host concreto, para ver el proceso DORA:
+
+```text
+mininet> h-b1-v50 dhclient -v h-b1-v50-eth0
+mininet> h-b1-v50 ip -4 addr show h-b1-v50-eth0
+```
+**Esperado:** el host obtiene una IP en `10.3.50.50–10.3.50.150` y gateway `10.3.50.254`.
+Revisa el log del servidor (DISCOVER/OFFER/REQUEST/ACK con el `giaddr` de la subred):
+
+```text
+mininet> srv-dhcp tail -n 25 /tmp/dhcp_corp.log
+```
+
+Ahora **pide DHCP en TODOS los hosts de usuario de una vez** (one-liner Python en la CLI):
+
+```text
+mininet> py [h.cmd('dhclient -nw ' + h.defaultIntf().name) for h in net.hosts if h.name.startswith('h-')]
+```
+Espera ~10 segundos y verifica un par de sedes:
+
+```text
+mininet> h-a2-v40 ip -4 addr show h-a2-v40-eth0      # ~ 10.2.40.x
+mininet> h-b2-v60 ip -4 addr show h-b2-v60-eth0      # ~ 10.4.60.x
+mininet> h-a1-v10 ip -4 addr show h-a1-v10-eth0      # ~ 10.1.10.x
+```
+**Esperado:** cada host con IP dentro de su subred. (Confirma DHCP centralizado en A1
+servido a las 4 sedes a través del WAN mediante `dhcrelay`.)
+
+### 4.4 — Conectividad extremo a extremo entre sedes
+
+```text
+mininet> h-a1-v10 ping -c2 10.1.100.4        # host A1 -> servidor web (A1)
+mininet> h-a2-v40 ping -c2 10.1.100.5        # host A2 -> servidor FTP (A1, vía WAN)
+mininet> h-b1-v50 ping -c2 h-b2-v60          # host B1 -> host B2 (spoke a spoke por el hub)
+```
+**Esperado:** 0% loss (requiere haber corrido el DHCP del paso 4.3).
+
+### 4.5 — DNS interno (s9)
+
+```text
+mininet> h-a2-v40 dig @10.1.100.3 web.corp.local +short      # -> 10.1.100.4
+mininet> h-a2-v40 dig @10.1.100.3 ftp.corp.local +short      # -> 10.1.100.5
+mininet> h-a2-v40 dig web.corp.local +short                  # sin @: usa el DNS recibido por DHCP
+```
+**Esperado:** las dos primeras devuelven la IP; la tercera también (el DNS `10.1.100.3`
+llegó por opción DHCP). Verifica los registros: `mininet> srv-dns cat /tmp/corp_dns.txt`.
+
+### 4.6 — Servidor Web (s7/s9)
+
+```text
+mininet> h-b2-v60 curl -s http://10.1.100.4          # por IP
+mininet> h-b2-v60 curl -s http://web.corp.local      # por FQDN (DNS + routing + servicio)
+```
+**Esperado:** `<h1>Datacenter A1 - Peeda+Vuul (web.corp.local)</h1>`.
+
+### 4.7 — Servidor FTP (s7/s9)
+
+```text
+mininet> h-a2-v40 curl -s ftp://admin:secret123@10.1.100.5/           # lista el directorio
+mininet> h-a2-v40 curl -s ftp://admin:secret123@ftp.corp.local/       # por FQDN
+mininet> h-a2-v40 curl -s ftp://admin:secret123@10.1.100.5/welcome.txt # descarga un archivo
+```
+**Esperado:** el listado incluye `welcome.txt`; la última descarga muestra
+`Archivo de prueba FTP - Peeda+Vuul`. (Funciona en modo pasivo: no hay NAT, así que la
+IP que anuncia el FTP es enrutable.)
+
+### 4.8 — `pingall` (opcional, con matiz importante)
+
+```text
+mininet> pingall
+```
+> ⚠️ **`pingall` NO dará 100% y es lo esperado por diseño.** Mininet hace ping a la IP de
+> la interfaz primaria de cada nodo: los servidores tienen su IP de servicio en `lo` (no
+> en la interfaz primaria), y los enlaces internos `/30` y `172.16.x.x` **no se anuncian
+> globalmente** (son infraestructura). La conectividad real se valida con los pasos 4.4–4.7
+> (host↔host y host↔servicios), que sí deben ser 100%.
+
+### 4.9 — Redundancia del doble núcleo: FAILOVER (s7)
+
+Simula la caída de **Core-1** bajando TODOS sus enlaces y comprueba que el tráfico sigue por **Core-2**:
+
+```text
+mininet> h-a2-v40 ping -c2 10.1.100.4        # OK antes del fallo
+mininet> link r-a1 core1 down
+mininet> link srv-dhcp core1 down
+mininet> link srv-dns core1 down
+mininet> link srv-web core1 down
+mininet> link srv-ftp core1 down
+mininet> h-a2-v40 ping -c4 10.1.100.4        # se recupera por core2
+```
+Para restaurar: repite los `link ... up`.
+> Nota honesta: el ECMP de Linux reparte **por flujo** (hash), no por paquete; por eso la
+> redundancia se demuestra con este failover y **no** viendo paquetes alternarse entre cores.
+> El routing es estático (sin OSPF/HSRP, no son de clase), así que la recuperación no es
+> instantánea: es la limitación que enseña la práctica s7.
+
+---
+
+## 5. Comandos de inspección útiles
+
+```text
+mininet> r-a1 ip route                       # tabla de R-A1: ECMP a servidores + rutas WAN a spokes
+mininet> core1 ip route                      # default vía R-A1 + /32 a cada servidor
+mininet> r-a2 ip route                       # default vía el HUB
+mininet> srv-ftp ip addr                     # ve la IP de servicio 10.1.100.5/32 en lo
+mininet> r-a2 ip -d link show r-a2-eth0.40   # subinterfaz 802.1Q (VLAN 40)
+mininet> sh ovs-vsctl show                   # puertos/VLANs (tag/trunks) de los switches OVS
+mininet> sh ovs-appctl fdb/show sw-a2        # tabla MAC (FDB) del switch de A2 (s3)
+mininet> srv-dhcp cat /tmp/dhcp_corp.leases  # concesiones DHCP entregadas
+mininet> srv-web cat /tmp/web/http.log       # log del servidor web
+mininet> srv-ftp cat /tmp/ftp_share/ftp.log  # log del servidor FTP (útil si el FTP no responde)
+```
+Captura de tráfico (ej. DORA de DHCP en el servidor):
+```text
+mininet> srv-dhcp tcpdump -n -i any port 67 or port 68
+```
+
+---
+
+## 6. Salir y limpiar
+
+```text
+mininet> exit
+```
+```bash
+sudo mn -c                                   # limpia la topología
+sudo pkill -f dnsmasq ; sudo pkill -f dhcrelay ; sudo pkill -f pyftpdlib   # por si quedan daemons
+```
+
+---
+
+## 7. Solución de problemas
+
+| Síntoma | Causa probable / solución |
+|---|---|
+| El host no obtiene IP por DHCP | Corre `dhclient -v <host>-eth0` y mira `srv-dhcp tail -f /tmp/dhcp_corp.log`. Asegúrate de haber hecho las pruebas de routing (4.2) antes; el relay necesita las rutas para el camino de retorno. |
+| `curl ftp://...` no responde | Verifica que `pyftpdlib` esté instalado (`srv-ftp cat /tmp/ftp_share/ftp.log`; si dice *No module named pyftpdlib*, instala el paquete del paso 2). |
+| `dig`/`curl` por FQDN falla pero por IP funciona | Falta el DNS en el host: corre primero el DHCP (4.3); o usa `dig @10.1.100.3 ...` explícito. |
+| Errores al arrancar / "interface exists" | Quedó una corrida previa: `sudo mn -c` y vuelve a lanzar. |
+| `pingall` con muchas X | Normal (ver 4.8): valida con 4.4–4.7, no con pingall. |
+| `dhcrelay: command not found` | Falta `isc-dhcp-relay` (paso 2). |
+
+---
+
+### Mapa rápido de direccionamiento (referencia)
+
+| Recurso | Dirección |
+|---|---|
+| Supernet / esquema | `10.0.0.0/8`, `10.{sede}.{vlan}.0/24`, gw `.254` |
+| WAN /30 | MTY-GDL `10.99.1.0/30` · MTY-QRO `10.99.2.0/30` · MTY-CDMX `10.99.3.0/30` |
+| Server farm (A1) | `10.1.100.0/24` → DHCP `.2`, DNS `.3`, Web `.4`, FTP `.5` |
+| Infra interna A1 /30 | uplinks `172.16.0.0/30` y `172.16.0.4/30`; trunk cores `172.16.0.8/30`; dual-homing `172.16.1-4.x` |
+| Credenciales FTP | usuario `admin` · contraseña `secret123` |
