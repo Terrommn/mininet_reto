@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# router para mininet: enrutamiento + rp_filter off (ecmp) + soporte vlan
 from mininet.node import Node
 
 
