@@ -117,6 +117,12 @@ def main():
         s.relay_target = a1.dhcp_server_ip
         s.start_relay()
     print('\n*** Red Peeda+Vuul lista (hub A1 + spokes A2/B1/B2). Pruebas en README.md\n')
+    # La CLI de Mininet corta el nombre del nodo en el primer caracter que no
+    # sea alfanumerico/_, asi que 'h-a2-v40 cmd' se interpreta como nodo 'h' y
+    # falla. Anadimos '-' a identchars para que la sintaxis corta 'nodo cmd'
+    # funcione con nuestros nombres con guiones (h-a2-v40, r-b1, srv-web, ...).
+    if '-' not in CLI.identchars:
+        CLI.identchars += '-'
     CLI(net)
     net.stop()
 

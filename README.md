@@ -57,6 +57,9 @@ con rutas estáticas/ECMP** (s7), **doble núcleo** con servidores **dual-homed*
 
 ## 2. Requisitos
 
+> **Atajo: con Docker no instalas nada.** Si tienes Docker, salta a la
+> sección **2.1** y olvídate de las dependencias.
+
 Linux (Ubuntu recomendado) con **root/sudo**. Instala las dependencias:
 
 ```bash
@@ -80,6 +83,33 @@ sudo apt-get install -y mininet openvswitch-switch dnsmasq isc-dhcp-relay \
 | `master_wan.py` | Integrador: 1 sola red Mininet, WAN, rutas, servicios, CLI |
 
 ---
+
+### 2.1 Alternativa recomendada: Docker (cero instalación)
+
+La imagen trae **todo** (mininet, OVS, dnsmasq, dhcrelay, pyftpdlib...). Solo
+necesitas Docker en Linux (o Docker Desktop con backend WSL2 en Windows):
+
+```bash
+docker compose build                  # construir la imagen (una sola vez)
+docker compose run --rm red test      # correr el test automatico (espera 14/14 OK)
+docker compose run --rm red           # abrir la CLI de Mininet (mininet>)
+```
+
+Sin compose, equivale a:
+
+```bash
+docker build -t mininet-reto .
+docker run -it --rm --privileged -v /lib/modules:/lib/modules:ro mininet-reto       # CLI
+docker run     --rm --privileged -v /lib/modules:/lib/modules:ro mininet-reto test  # test
+```
+
+Notas:
+- El contenedor corre **privilegiado** porque Mininet crea namespaces e
+  interfaces de red; toda la red vive *dentro* del contenedor (no toca tu red).
+- El volumen `/lib/modules` permite cargar los módulos `openvswitch` y `8021q`
+  del kernel anfitrión. En la mayoría de los kernels de Ubuntu/WSL2 ya vienen.
+- El aviso `Error setting resource limits` al arrancar es inofensivo.
+- Dentro de la CLI todo funciona igual que en la sección 4 (pruebas paso a paso).
 
 ## 3. Ejecutar
 
@@ -144,9 +174,10 @@ mininet> srv-dhcp tail -n 25 /tmp/dhcp_corp.log
 Ahora **pide DHCP en TODOS los hosts de usuario de una vez** (one-liner Python en la CLI):
 
 ```text
-mininet> py from master_wan import dhclient_cmd
-mininet> py [h.cmd(dhclient_cmd(h, extra='-nw')) for h in net.hosts if h.name.startswith('h-')]
+mininet> py [h.cmd('dhclient -4 -nw -lf /tmp/dhcl-' + h.name + '.leases -pf /tmp/dhcl-' + h.name + '.pid ' + h.defaultIntf().name) for h in net.hosts if h.name.startswith('h-')]
 ```
+> La CLI de Mininet evalúa `py` con `eval()` (solo expresiones), por eso no se puede
+> hacer `py from master_wan import ...`; el comando va embebido en la lista.
 Espera ~10 segundos y verifica un par de sedes:
 
 ```text

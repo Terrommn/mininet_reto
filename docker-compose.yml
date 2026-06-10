@@ -1,0 +1,14 @@
+services:
+  red:
+    build: .
+    image: mininet-reto
+    container_name: mininet-reto
+    # Mininet crea namespaces de red, interfaces veth y colas tc:
+    # necesita el contenedor privilegiado.
+    privileged: true
+    # Permite hacer modprobe (openvswitch, 8021q) desde el contenedor
+    # usando los modulos del kernel del anfitrion.
+    volumes:
+      - /lib/modules:/lib/modules:ro
+    stdin_open: true
+    tty: true
