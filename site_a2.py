@@ -5,11 +5,11 @@ from common_router import Router
 class SiteA2:
     SITE_ID = 2
     PREFIX = '10.2'
-    ROUTER = 'r-a2'
-    SWITCH = 'sw-a2'
-    HOST = 'h-a2-v'
-    WAN_INTF = 'r-a2-eth1'
-    TRUNK = 'sw-a2-eth20'
+    ROUTER = 'r_a2'
+    SWITCH = 'sw_a2'
+    HOST = 'h_a2_v'
+    WAN_INTF = 'r_a2-eth1'
+    TRUNK = 'sw_a2-eth20'
     VLANS = [40, 30, 110, 120, 130, 140, 99]
 
     def __init__(self):
@@ -18,13 +18,18 @@ class SiteA2:
         self.subifs = []
         self.relay_target = None
         self.user_hosts = []
+        # nombre (el literal pasado a addHost) -> objeto host: permite ubicar
+        # hosts por nombre sin leer atributos de Mininet fuera de los labs
+        self.hosts_by_name = {}
 
     def build(self, net):
         self.gateway = net.addHost(self.ROUTER, cls=Router, ip=None)
         self.switch = net.addSwitch(self.SWITCH, failMode='standalone')
         for i, vid in enumerate(self.VLANS, start=1):
-            h = net.addHost(f'{self.HOST}{vid}', ip=None, privateDirs=['/etc'])
+            name = f'{self.HOST}{vid}'
+            h = net.addHost(name, ip=None, privateDirs=['/etc'])
             self.user_hosts.append(h)
+            self.hosts_by_name[name] = h
             net.addLink(h, self.switch, intfName2=f'{self.SWITCH}-eth{i}')
         net.addLink(self.switch, self.gateway,
                     port1=20, intfName2=f'{self.ROUTER}-eth0')

@@ -21,7 +21,7 @@ con rutas estáticas/ECMP** (s7), **doble núcleo** con servidores **dual-homed*
       core1   core2   (doble núcleo, ECMP - patrón s7)
         \\     //   dual-homing /30 (172.16.1-4.x)
         SERVER FARM (VLAN 100, IP de servicio en loopback):
-        srv-dhcp 10.1.100.2 · srv-dns 10.1.100.3 · srv-web 10.1.100.4 · srv-ftp 10.1.100.5
+        srv_dhcp 10.1.100.2 · srv_dns 10.1.100.3 · srv_web 10.1.100.4 · srv_ftp 10.1.100.5
             |              |              |
    WAN /30 |  10.99.1.0/30 | 10.99.2.0/30 | 10.99.3.0/30
             |              |              |
@@ -44,14 +44,14 @@ con rutas estáticas/ECMP** (s7), **doble núcleo** con servidores **dual-homed*
 
 | Servicio | Host | IP servicio | FQDN | Notas |
 |---|---|---|---|---|
-| DHCP | srv-dhcp | 10.1.100.2 | dhcp.corp.local | dnsmasq + relay multi-sede |
-| DNS | srv-dns | 10.1.100.3 | dns.corp.local | dnsmasq (zona interna) |
-| Web | srv-web | 10.1.100.4 | web.corp.local | `http.server` :80 |
-| FTP | srv-ftp | 10.1.100.5 | ftp.corp.local | pyftpdlib :21 · user `admin` / pass `secret123` |
+| DHCP | srv_dhcp | 10.1.100.2 | dhcp.corp.local | dnsmasq + relay multi-sede |
+| DNS | srv_dns | 10.1.100.3 | dns.corp.local | dnsmasq (zona interna) |
+| Web | srv_web | 10.1.100.4 | web.corp.local | `http.server` :80 |
+| FTP | srv_ftp | 10.1.100.5 | ftp.corp.local | pyftpdlib :21 · user `admin` / pass `secret123` |
 
-**Nombres de nodos:** routers `r-a1/r-a2/r-b1/r-b2`, núcleo `core1/core2`, servidores
-`srv-dhcp/srv-dns/srv-web/srv-ftp`, hosts de usuario `h-{sede}-v{vlan}` (p. ej.
-`h-a1-v10`, `h-a2-v40`, `h-b1-v50`, `h-b2-v60`). La interfaz de cada host es `<host>-eth0`.
+**Nombres de nodos:** routers `r_a1/r_a2/r_b1/r_b2`, núcleo `core1/core2`, servidores
+`srv_dhcp/srv_dns/srv_web/srv_ftp`, hosts de usuario `h_{sede}_v{vlan}` (p. ej.
+`h_a1_v10`, `h_a2_v40`, `h_b1_v50`, `h_b2_v60`). La interfaz de cada host es `<host>-eth0`.
 
 ---
 
@@ -91,7 +91,7 @@ necesitas Docker en Linux (o Docker Desktop con backend WSL2 en Windows):
 
 ```bash
 docker compose build                  # construir la imagen (una sola vez)
-docker compose run --rm red test      # correr el test automatico (espera 14/14 OK)
+docker compose run --rm red test      # correr el test automatico (espera 15/15 OK)
 docker compose run --rm red           # abrir la CLI de Mininet (mininet>)
 ```
 
@@ -121,7 +121,7 @@ sudo python3 master_wan.py       # levanta la red y abre la CLI de Mininet (mini
 Al terminar verás el prompt `mininet>`. **Todos los comandos de prueba siguientes se
 escriben en ese prompt.** Para salir: `exit` (al final hace `net.stop()` automático).
 
-> Convención de la CLI: `nodo comando` ejecuta en ese nodo (ej. `h-a1-v10 ip a`);
+> Convención de la CLI: `nodo comando` ejecuta en ese nodo (ej. `h_a1_v10 ip a`);
 > `sh comando` ejecuta en el host raíz (ej. `sh ovs-vsctl show`).
 
 ---
@@ -134,25 +134,25 @@ escriben en ese prompt.** Para salir: `exit` (al final hace `net.stop()` automá
 mininet> nodes
 mininet> dump
 ```
-**Esperado:** aparecen los 4 routers, `core1/core2`, los 4 `srv-*`, los switches
-`sw-a1/sw-a2/sw-b1/sw-b2` y todos los hosts `h-*`.
+**Esperado:** aparecen los 4 routers, `core1/core2`, los 4 `srv_*`, los switches
+`sw_a1/sw_a2/sw_b1/sw_b2` y todos los hosts `h_*`.
 
 ### 4.1 — Inter-VLAN local (Router-on-a-Stick, s3)
 
 Los gateways `.254` existen desde el arranque (no dependen de DHCP):
 
 ```text
-mininet> h-a1-v10 ping -c2 10.1.10.254      # su propio gateway
-mininet> r-a2 ping -c2 10.2.40.254          # gateway local del spoke
+mininet> h_a1_v10 ping -c2 10.1.10.254      # su propio gateway
+mininet> r_a2 ping -c2 10.2.40.254          # gateway local del spoke
 ```
 **Esperado:** 0% packet loss. (Confirma subinterfaces 802.1Q + tags OVS.)
 
 ### 4.2 — WAN hub-and-spoke (rutas estáticas, s7)
 
 ```text
-mininet> r-a2 ping -c2 10.99.1.1            # spoke -> HUB por el enlace /30
-mininet> r-b1 ping -c2 10.1.100.4           # spoke -> servidor en A1 (vía HUB)
-mininet> r-a2 ping -c2 10.3.50.254          # spoke A2 -> gateway en spoke B1 (tránsito por HUB)
+mininet> r_a2 ping -c2 10.99.1.1            # spoke -> HUB por el enlace /30
+mininet> r_b1 ping -c2 10.1.100.4           # spoke -> servidor en A1 (vía HUB)
+mininet> r_a2 ping -c2 10.3.50.254          # spoke A2 -> gateway en spoke B1 (tránsito por HUB)
 ```
 **Esperado:** 0% loss. (Confirma WAN + tránsito spoke↔spoke por el hub.)
 
@@ -161,29 +161,31 @@ mininet> r-a2 ping -c2 10.3.50.254          # spoke A2 -> gateway en spoke B1 (t
 Primero un host concreto, para ver el proceso DORA:
 
 ```text
-mininet> h-b1-v50 dhclient -v -1 -lf /tmp/dhcl-h-b1-v50.leases -pf /tmp/dhcl-h-b1-v50.pid h-b1-v50-eth0
-mininet> h-b1-v50 ip -4 addr show h-b1-v50-eth0
+mininet> h_b1_v50 dhclient -v -1 -lf /var/lib/dhcp/dhclient-h_b1_v50.leases -pf /run/dhclient-h_b1_v50.pid h_b1_v50-eth0
+mininet> h_b1_v50 ip -4 addr show h_b1_v50-eth0
 ```
 **Esperado:** el host obtiene una IP en `10.3.50.50–10.3.50.150` y gateway `10.3.50.254`.
 Revisa el log del servidor (DISCOVER/OFFER/REQUEST/ACK con el `giaddr` de la subred):
 
 ```text
-mininet> srv-dhcp tail -n 25 /tmp/dhcp_corp.log
+mininet> srv_dhcp tail -n 25 /tmp/dhcp_corp.log
 ```
 
-Ahora **pide DHCP en TODOS los hosts de usuario de una vez** (one-liner Python en la CLI):
+Ahora pide DHCP en **un host representativo de cada sede** (mismo comando, cambia el
+nombre; con guion bajo la sintaxis corta `nodo comando` de la CLI funciona directa):
 
 ```text
-mininet> py [h.cmd('dhclient -4 -nw -lf /tmp/dhcl-' + h.name + '.leases -pf /tmp/dhcl-' + h.name + '.pid ' + h.defaultIntf().name) for h in net.hosts if h.name.startswith('h-')]
+mininet> h_a1_v10 dhclient -nw -1 -lf /var/lib/dhcp/dhclient-h_a1_v10.leases -pf /run/dhclient-h_a1_v10.pid h_a1_v10-eth0
+mininet> h_a2_v40 dhclient -nw -1 -lf /var/lib/dhcp/dhclient-h_a2_v40.leases -pf /run/dhclient-h_a2_v40.pid h_a2_v40-eth0
+mininet> h_b2_v60 dhclient -nw -1 -lf /var/lib/dhcp/dhclient-h_b2_v60.leases -pf /run/dhclient-h_b2_v60.pid h_b2_v60-eth0
 ```
-> La CLI de Mininet evalúa `py` con `eval()` (solo expresiones), por eso no se puede
-> hacer `py from master_wan import ...`; el comando va embebido en la lista.
+(Para validar TODOS los hosts de golpe usa el test automático: `sudo python3 test_red.py`.)
 Espera ~10 segundos y verifica un par de sedes:
 
 ```text
-mininet> h-a2-v40 ip -4 addr show h-a2-v40-eth0      # ~ 10.2.40.x
-mininet> h-b2-v60 ip -4 addr show h-b2-v60-eth0      # ~ 10.4.60.x
-mininet> h-a1-v10 ip -4 addr show h-a1-v10-eth0      # ~ 10.1.10.x
+mininet> h_a2_v40 ip -4 addr show h_a2_v40-eth0      # ~ 10.2.40.x
+mininet> h_b2_v60 ip -4 addr show h_b2_v60-eth0      # ~ 10.4.60.x
+mininet> h_a1_v10 ip -4 addr show h_a1_v10-eth0      # ~ 10.1.10.x
 ```
 **Esperado:** cada host con IP dentro de su subred. (Confirma DHCP centralizado en A1
 servido a las 4 sedes a través del WAN mediante `dhcrelay`.)
@@ -191,36 +193,36 @@ servido a las 4 sedes a través del WAN mediante `dhcrelay`.)
 ### 4.4 — Conectividad extremo a extremo entre sedes
 
 ```text
-mininet> h-a1-v10 ping -c2 10.1.100.4        # host A1 -> servidor web (A1)
-mininet> h-a2-v40 ping -c2 10.1.100.5        # host A2 -> servidor FTP (A1, vía WAN)
-mininet> h-b1-v50 ping -c2 h-b2-v60          # host B1 -> host B2 (spoke a spoke por el hub)
+mininet> h_a1_v10 ping -c2 10.1.100.4        # host A1 -> servidor web (A1)
+mininet> h_a2_v40 ping -c2 10.1.100.5        # host A2 -> servidor FTP (A1, vía WAN)
+mininet> h_b1_v50 ping -c2 h_b2_v60          # host B1 -> host B2 (spoke a spoke por el hub)
 ```
 **Esperado:** 0% loss (requiere haber corrido el DHCP del paso 4.3).
 
 ### 4.5 — DNS interno (s9)
 
 ```text
-mininet> h-a2-v40 dig @10.1.100.3 web.corp.local +short      # -> 10.1.100.4
-mininet> h-a2-v40 dig @10.1.100.3 ftp.corp.local +short      # -> 10.1.100.5
-mininet> h-a2-v40 dig web.corp.local +short                  # sin @: usa el DNS recibido por DHCP
+mininet> h_a2_v40 dig @10.1.100.3 web.corp.local +short      # -> 10.1.100.4
+mininet> h_a2_v40 dig @10.1.100.3 ftp.corp.local +short      # -> 10.1.100.5
+mininet> h_a2_v40 dig web.corp.local +short                  # sin @: usa el DNS recibido por DHCP
 ```
 **Esperado:** las dos primeras devuelven la IP; la tercera también (el DNS `10.1.100.3`
-llegó por opción DHCP). Verifica los registros: `mininet> srv-dns cat /tmp/corp_dns.txt`.
+llegó por opción DHCP). Verifica los registros: `mininet> srv_dns cat /tmp/corp_dns.txt`.
 
 ### 4.6 — Servidor Web (s7/s9)
 
 ```text
-mininet> h-b2-v60 curl -s http://10.1.100.4          # por IP
-mininet> h-b2-v60 curl -s http://web.corp.local      # por FQDN (DNS + routing + servicio)
+mininet> h_b2_v60 curl -s http://10.1.100.4          # por IP
+mininet> h_b2_v60 curl -s http://web.corp.local      # por FQDN (DNS + routing + servicio)
 ```
 **Esperado:** `<h1>Datacenter A1 - Peeda+Vuul (web.corp.local)</h1>`.
 
 ### 4.7 — Servidor FTP (s7/s9)
 
 ```text
-mininet> h-a2-v40 curl -s ftp://admin:secret123@10.1.100.5/           # lista el directorio
-mininet> h-a2-v40 curl -s ftp://admin:secret123@ftp.corp.local/       # por FQDN
-mininet> h-a2-v40 curl -s ftp://admin:secret123@10.1.100.5/welcome.txt # descarga un archivo
+mininet> h_a2_v40 curl -s ftp://admin:secret123@10.1.100.5/           # lista el directorio
+mininet> h_a2_v40 curl -s ftp://admin:secret123@ftp.corp.local/       # por FQDN
+mininet> h_a2_v40 curl -s ftp://admin:secret123@10.1.100.5/welcome.txt # descarga un archivo
 ```
 **Esperado:** el listado incluye `welcome.txt`; la última descarga muestra
 `Archivo de prueba FTP - Peeda+Vuul`. (Funciona en modo pasivo: no hay NAT, así que la
@@ -242,13 +244,13 @@ mininet> pingall
 Simula la caída de **Core-1** bajando TODOS sus enlaces y comprueba que el tráfico sigue por **Core-2**:
 
 ```text
-mininet> h-a2-v40 ping -c2 10.1.100.4        # OK antes del fallo
-mininet> link r-a1 core1 down
-mininet> link srv-dhcp core1 down
-mininet> link srv-dns core1 down
-mininet> link srv-web core1 down
-mininet> link srv-ftp core1 down
-mininet> h-a2-v40 ping -c4 10.1.100.4        # se recupera por core2
+mininet> h_a2_v40 ping -c2 10.1.100.4        # OK antes del fallo
+mininet> link r_a1 core1 down
+mininet> link srv_dhcp core1 down
+mininet> link srv_dns core1 down
+mininet> link srv_web core1 down
+mininet> link srv_ftp core1 down
+mininet> h_a2_v40 ping -c4 10.1.100.4        # se recupera por core2
 ```
 Para restaurar: repite los `link ... up`.
 > Nota honesta: el ECMP de Linux reparte **por flujo** (hash), no por paquete; por eso la
@@ -261,20 +263,20 @@ Para restaurar: repite los `link ... up`.
 ## 5. Comandos de inspección útiles
 
 ```text
-mininet> r-a1 ip route                       # tabla de R-A1: ECMP a servidores + rutas WAN a spokes
+mininet> r_a1 ip route                       # tabla de R-A1: ECMP a servidores + rutas WAN a spokes
 mininet> core1 ip route                      # default vía R-A1 + /32 a cada servidor
-mininet> r-a2 ip route                       # default vía el HUB
-mininet> srv-ftp ip addr                     # ve la IP de servicio 10.1.100.5/32 en lo
-mininet> r-a2 ip -d link show r-a2-eth0.40   # subinterfaz 802.1Q (VLAN 40)
+mininet> r_a2 ip route                       # default vía el HUB
+mininet> srv_ftp ip addr                     # ve la IP de servicio 10.1.100.5/32 en lo
+mininet> r_a2 ip -d link show r_a2-eth0.40   # subinterfaz 802.1Q (VLAN 40)
 mininet> sh ovs-vsctl show                   # puertos/VLANs (tag/trunks) de los switches OVS
-mininet> sh ovs-appctl fdb/show sw-a2        # tabla MAC (FDB) del switch de A2 (s3)
-mininet> srv-dhcp cat /tmp/dhcp_corp.leases  # concesiones DHCP entregadas
-mininet> srv-web cat /tmp/web/http.log       # log del servidor web
-mininet> srv-ftp cat /tmp/ftp_share/ftp.log  # log del servidor FTP (útil si el FTP no responde)
+mininet> sh ovs-appctl fdb/show sw_a2        # tabla MAC (FDB) del switch de A2 (s3)
+mininet> srv_dhcp cat /tmp/dhcp_corp.leases  # concesiones DHCP entregadas
+mininet> srv_web cat /tmp/web/http.log       # log del servidor web
+mininet> srv_ftp cat /tmp/ftp_share/ftp.log  # log del servidor FTP (útil si el FTP no responde)
 ```
 Captura de tráfico (ej. DORA de DHCP en el servidor):
 ```text
-mininet> srv-dhcp tcpdump -n -i any port 67 or port 68
+mininet> srv_dhcp tcpdump -n -i any port 67 or port 68
 ```
 
 ---
@@ -295,9 +297,9 @@ sudo pkill -f dnsmasq ; sudo pkill -f dhcrelay ; sudo pkill -f pyftpdlib   # por
 
 | Síntoma | Causa probable / solución |
 |---|---|
-| El host no obtiene IP por DHCP | Usa siempre la forma con `-sf/-lf/-pf` del paso 4.3 y mira `srv-dhcp tail -f /tmp/dhcp_corp.log`. Asegúrate de haber hecho las pruebas de routing (4.2) antes; el relay necesita las rutas para el camino de retorno. |
+| El host no obtiene IP por DHCP | Usa siempre la forma con `-sf/-lf/-pf` del paso 4.3 y mira `srv_dhcp tail -f /tmp/dhcp_corp.log`. Asegúrate de haber hecho las pruebas de routing (4.2) antes; el relay necesita las rutas para el camino de retorno. |
 | `dhclient` se queda en bucle DISCOVER/ACK/DECLINE | Se invocó `dhclient` "a pelo" (sin `-lf`/`-pf` privados): al compartir `/var/lib/dhcp` entre hosts, dhclient confunde su estado con un conflicto y rechaza cada IP con DHCPDECLINE. Usa `dhclient_cmd()` de `master_wan.py` o las opciones del paso 4.3. |
-| `curl ftp://...` no responde | Verifica que `pyftpdlib` esté instalado (`srv-ftp cat /tmp/ftp_share/ftp.log`; si dice *No module named pyftpdlib*, instala el paquete del paso 2). |
+| `curl ftp://...` no responde | Verifica que `pyftpdlib` esté instalado (`srv_ftp cat /tmp/ftp_share/ftp.log`; si dice *No module named pyftpdlib*, instala el paquete del paso 2). |
 | `dig`/`curl` por FQDN falla pero por IP funciona | Falta el DNS en el host: corre primero el DHCP (4.3); o usa `dig @10.1.100.3 ...` explícito. |
 | Errores al arrancar / "interface exists" | Quedó una corrida previa: `sudo mn -c` y vuelve a lanzar. |
 | `pingall` con muchas X | Normal (ver 4.8): valida con 4.4–4.7, no con pingall. |

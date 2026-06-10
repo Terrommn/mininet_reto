@@ -96,8 +96,8 @@ self.cmd('modprobe 8021q')                          # habilita subinterfaces VLA
 Los tres son iguales; solo cambian el número de sede, el prefijo IP y la lista de VLANs.
 Tomemos A2 (Guadalajara):
 
-- **`build()`**: crea el router (`r-a2`, **sin IP** — ver Sección 6), un switch de acceso, un
-  host por VLAN, y los enlaces. El último enlace `switch → router` es el **trunk** (`r-a2-eth0`).
+- **`build()`**: crea el router (`r_a2`, **sin IP** — ver Sección 6), un switch de acceso, un
+  host por VLAN, y los enlaces. El último enlace `switch → router` es el **trunk** (`r_a2-eth0`).
 - **`configure()`** (tras arrancar):
   1. **Etiqueta los puertos del switch** (s3): cada puerto de PC con su VLAN (`tag=`), y el
      puerto troncal con todas (`trunks=`).
@@ -125,19 +125,19 @@ WAN hacia los spokes + agente `dhcrelay`. (s3 + s7 + s8)
 **(b) Doble núcleo `core1` / `core2`** = dos routers de tránsito con **ECMP** (s7). Dan
 redundancia al data center.
 
-**(c) Granja de servidores dual-homed** = `srv-dhcp`, `srv-dns`, `srv-web`, `srv-ftp`. Cada
+**(c) Granja de servidores dual-homed** = `srv_dhcp`, `srv_dns`, `srv_web`, `srv_ftp`. Cada
 uno tiene **dos enlaces** (uno a cada núcleo) y su **IP de servicio en loopback** (s7 extendido):
 ```python
 sd.cmd('ip addr add 10.1.100.2/32 dev lo')   # la IP "pública" del servicio va en lo
 sd.cmd('ip route replace default '            # y sale por CUALQUIERA de los dos núcleos (ECMP)
-       'nexthop via 172.16.1.1 dev srv-dhcp-eth0 '
-       'nexthop via 172.16.1.5 dev srv-dhcp-eth1')
+       'nexthop via 172.16.1.1 dev srv_dhcp-eth0 '
+       'nexthop via 172.16.1.5 dev srv_dhcp-eth1')
 ```
 Rutas clave del HUB:
 ```python
 # R-A1 llega a los servidores por los DOS núcleos (ECMP):
-r.cmd('ip route replace 10.1.100.0/24 nexthop via 172.16.0.2 dev r-a1-eth1 '
-      'nexthop via 172.16.0.6 dev r-a1-eth2')
+r.cmd('ip route replace 10.1.100.0/24 nexthop via 172.16.0.2 dev r_a1-eth1 '
+      'nexthop via 172.16.0.6 dev r_a1-eth2')
 # cada núcleo: todo lo demás se manda a R-A1, y cada servidor por su /30 directo:
 c1.cmd('ip route replace default via 172.16.0.1 dev core1-eth0')
 c1.cmd('ip route replace 10.1.100.2/32 via 172.16.1.2 dev core1-eth2')
@@ -153,8 +153,8 @@ Es el único que se ejecuta (`sudo python3 master_wan.py`). Hace, **en orden**:
 3. `net.start()`.
 4. Pone las IPs de la WAN, llama a `configure()` de cada sede, y fija las **rutas WAN**:
    ```python
-   r.cmd('ip route replace 10.2.0.0/16 via 10.99.1.2 dev r-a1-eth3')   # R-A1 -> GDL
-   a2.gateway.cmd('ip route replace default via 10.99.1.1 dev r-a2-eth1') # GDL -> todo via HUB
+   r.cmd('ip route replace 10.2.0.0/16 via 10.99.1.2 dev r_a1-eth3')   # R-A1 -> GDL
+   a2.gateway.cmd('ip route replace default via 10.99.1.1 dev r_a2-eth1') # GDL -> todo via HUB
    ```
 5. **Endurece el `rp_filter`** (`rp_filter=0` en cada interfaz de cada router, §6.5) y
    **prepara `/etc/resolv.conf`** en cada host (§7), genera las configs
@@ -168,20 +168,20 @@ Es el único que se ejecuta (`sudo python3 master_wan.py`). Hace, **en orden**:
 ## 5. Recorridos de paquetes (lo que MÁS preguntan)
 
 ### 5.1 Inter-VLAN local (PC de Dirección → PC de TI, en A1)
-1. La PC de VLAN 10 manda a su gateway `10.1.10.254` (subinterfaz `r-a1-eth0.10`).
-2. R-A1 ve que el destino está en `10.1.20.0/24`, que tiene conectada en `r-a1-eth0.20`.
+1. La PC de VLAN 10 manda a su gateway `10.1.10.254` (subinterfaz `r_a1-eth0.10`).
+2. R-A1 ve que el destino está en `10.1.20.0/24`, que tiene conectada en `r_a1-eth0.20`.
 3. Reenvía la trama **etiquetada como VLAN 20** por el trunk → switch → PC de TI.
 > Sin el router, las dos VLANs **no** se verían (están aisladas). El router es el único punto
 > de paso entre VLANs. (s3)
 
 ### 5.2 ⭐ Un host pide IP por DHCP (con relay a través de la WAN) — el flujo estrella
-Ejemplo: `h-b1-v50` (Querétaro, VLAN 50) pide IP al servidor central de A1.
-1. El host manda un **DISCOVER** (broadcast) → llega a `r-b1-eth0.50` (su gateway en R-B1).
+Ejemplo: `h_b1_v50` (Querétaro, VLAN 50) pide IP al servidor central de A1.
+1. El host manda un **DISCOVER** (broadcast) → llega a `r_b1-eth0.50` (su gateway en R-B1).
 2. El **`dhcrelay`** de R-B1 lo atrapa, escribe `giaddr = 10.3.50.254` y lo manda **unicast**
    al servidor `10.1.100.2`.
 3. R-B1 enruta hacia `10.1.100.2` por su **default → R-A1** (cruza la WAN).
 4. R-A1 lo manda al servidor por **ECMP** (núcleo1 o núcleo2) → el núcleo tiene una ruta `/32`
-   al servidor → llega a `srv-dhcp`.
+   al servidor → llega a `srv_dhcp`.
 5. `dnsmasq` mira el `giaddr` (10.3.50.254), elige el **pool de esa subred**
    (`10.3.50.50–150`) y manda el **OFFER** de vuelta al `giaddr`.
 6. El OFFER regresa: servidor → núcleo (ECMP) → R-A1 → WAN → R-B1.
@@ -325,7 +325,7 @@ R: Para que sea alcanzable por **cualquiera** de los dos núcleos (dual-homing).
 una NIC física, dependería de ese enlace.
 
 **P: ¿Qué pasa si cae el núcleo 1?**
-R: El tráfico continúa por el núcleo 2 (failover). Se demuestra con `link r-a1 core1 down`.
+R: El tráfico continúa por el núcleo 2 (failover). Se demuestra con `link r_a1 core1 down`.
 No es instantáneo porque el routing es estático (limitación que enseña s7).
 
 **P: ¿Por qué `/24` y no `/28` como el reporte?**

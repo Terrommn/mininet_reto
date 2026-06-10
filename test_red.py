@@ -38,10 +38,11 @@ def info(desc, ok):
 
 
 def find_host(sites, name):
+    # busca por el diccionario nombre->host que cada sede llena en build()
+    # con el mismo literal que paso a addHost (sin leer atributos de Mininet)
     for s in sites:
-        for h in s.user_hosts:
-            if h.name == name:
-                return h
+        if name in s.hosts_by_name:
+            return s.hosts_by_name[name]
     raise KeyError(name)
 
 
@@ -59,8 +60,8 @@ def ping_ok(src, dst):
     return '1 received' in out or '1 packets received' in out
 
 
-def host_ip(host):
-    intf = f'{host.name}-eth0'
+def host_ip(name, host):
+    intf = f'{name}-eth0'
     out = host.cmd(f'ip -4 -o addr show {intf}')
     m = re.search(r'inet (10[.][0-9.]+)', out)
     return m.group(1) if m else None
@@ -74,9 +75,8 @@ def dhcp_log_ok(log, prefix):
     )
 
 
-def start_dhcp_probe(host):
-    name = host.name
-    intf = host.defaultIntf().name
+def start_dhcp_probe(name, host):
+    intf = f'{name}-eth0'
     log = f'/tmp/dhcp-{name}.log'
 
     print(f"  - Probando DHCP en {name} ({intf})...", flush=True)
@@ -89,16 +89,16 @@ def start_dhcp_probe(host):
     host.cmd(f'touch /var/lib/dhcp/dhclient-{name}.leases')
     host.cmd(f'chmod 666 /var/lib/dhcp/dhclient-{name}.leases')
 
-    cmd = dhclient_cmd(host)
+    cmd = dhclient_cmd(name)
     host.cmd(f'(timeout -k 2 -s KILL 20 {cmd}) > {log} 2>&1 &')
 
 
-def read_dhcp_log(host):
-    return host.cmd(f'cat /tmp/dhcp-{host.name}.log 2>/dev/null')
+def read_dhcp_log(name, host):
+    return host.cmd(f'cat /tmp/dhcp-{name}.log 2>/dev/null')
 
 
-def set_static(host, ip, gw):
-    intf = f'{host.name}-eth0'
+def set_static(name, host, ip, gw):
+    intf = f'{name}-eth0'
     host.cmd(f'pkill -9 -f "[d]hclient.*{intf}" 2>/dev/null || true')
     host.cmd(f'ip addr flush dev {intf}')
     host.cmd(f'ip addr add {ip}/24 dev {intf}')
@@ -175,54 +175,54 @@ def main():
         print("== Esperando servicios base (dnsmasq / web / ftp / relay) ...")
         time.sleep(5)
 
-        ha1_10 = find_host(sites, 'h-a1-v10')
-        ha1_20 = find_host(sites, 'h-a1-v20')
-        ha2 = find_host(sites, 'h-a2-v40')
-        hb1 = find_host(sites, 'h-b1-v50')
-        hb2 = find_host(sites, 'h-b2-v60')
+        ha1_10 = find_host(sites, 'h_a1_v10')
+        ha1_20 = find_host(sites, 'h_a1_v20')
+        ha2 = find_host(sites, 'h_a2_v40')
+        hb1 = find_host(sites, 'h_b1_v50')
+        hb2 = find_host(sites, 'h_b2_v60')
 
         test_hosts = [
-            (ha1_10, '10.1.10.', '10.1.10.10', '10.1.10.254'),
-            (ha1_20, '10.1.20.', '10.1.20.20', '10.1.20.254'),
-            (ha2,    '10.2.40.', '10.2.40.40', '10.2.40.254'),
-            (hb1,    '10.3.50.', '10.3.50.50', '10.3.50.254'),
-            (hb2,    '10.4.60.', '10.4.60.60', '10.4.60.254'),
+            ('h_a1_v10', ha1_10, '10.1.10.', '10.1.10.10', '10.1.10.254'),
+            ('h_a1_v20', ha1_20, '10.1.20.', '10.1.20.20', '10.1.20.254'),
+            ('h_a2_v40', ha2,    '10.2.40.', '10.2.40.40', '10.2.40.254'),
+            ('h_b1_v50', hb1,    '10.3.50.', '10.3.50.50', '10.3.50.254'),
+            ('h_b2_v60', hb2,    '10.4.60.', '10.4.60.60', '10.4.60.254'),
         ]
 
         print("== Probando DHCP sin bloquear el test ...")
-        for h, prefix, static_ip, gw in test_hosts:
-            start_dhcp_probe(h)
+        for name, h, prefix, static_ip, gw in test_hosts:
+            start_dhcp_probe(name, h)
 
         time.sleep(25)
 
         dhcp_logs = {}
-        for h, prefix, static_ip, gw in test_hosts:
-            log = read_dhcp_log(h)
-            dhcp_logs[h.name] = log
-            ip = host_ip(h)
-            print(f"  - {h.name}: {ip or 'SIN IP'}")
+        for name, h, prefix, static_ip, gw in test_hosts:
+            log = read_dhcp_log(name, h)
+            dhcp_logs[name] = log
+            ip = host_ip(name, h)
+            print(f"  - {name}: {ip or 'SIN IP'}")
 
         # Para las pruebas funcionales, usamos IP fija.
         # Así si DHCP falla, no destruye DNS/Web/FTP/WAN.
         print("== Configurando IPs estaticas para pruebas funcionales ...")
-        for h, prefix, static_ip, gw in test_hosts:
-            set_static(h, static_ip, gw)
-            print(f"  - {h.name}: {host_ip(h)}")
+        for name, h, prefix, static_ip, gw in test_hosts:
+            set_static(name, h, static_ip, gw)
+            print(f"  - {name}: {host_ip(name, h)}")
 
         print("\n[1] DHCP central + relay:")
-        check("A1  h-a1-v10 recibio OFFER/ACK para 10.1.10.x",
-              dhcp_log_ok(dhcp_logs['h-a1-v10'], '10.1.10.'))
-        check("A2  h-a2-v40 recibio OFFER/ACK para 10.2.40.x",
-              dhcp_log_ok(dhcp_logs['h-a2-v40'], '10.2.40.'))
-        check("B1  h-b1-v50 recibio OFFER/ACK para 10.3.50.x",
-              dhcp_log_ok(dhcp_logs['h-b1-v50'], '10.3.50.'))
-        check("B2  h-b2-v60 recibio OFFER/ACK para 10.4.60.x",
-              dhcp_log_ok(dhcp_logs['h-b2-v60'], '10.4.60.'))
+        check("A1  h_a1_v10 recibio OFFER/ACK para 10.1.10.x",
+              dhcp_log_ok(dhcp_logs['h_a1_v10'], '10.1.10.'))
+        check("A2  h_a2_v40 recibio OFFER/ACK para 10.2.40.x",
+              dhcp_log_ok(dhcp_logs['h_a2_v40'], '10.2.40.'))
+        check("B1  h_b1_v50 recibio OFFER/ACK para 10.3.50.x",
+              dhcp_log_ok(dhcp_logs['h_b1_v50'], '10.3.50.'))
+        check("B2  h_b2_v60 recibio OFFER/ACK para 10.4.60.x",
+              dhcp_log_ok(dhcp_logs['h_b2_v60'], '10.4.60.'))
 
         print("\n[2] Inter-VLAN local (Router-on-a-Stick en A1):")
-        check("h-a1-v10 -> gateway de VLAN 20 (10.1.20.254)",
+        check("h_a1_v10 -> gateway de VLAN 20 (10.1.20.254)",
               ping_ok(ha1_10, '10.1.20.254'))
-        check("h-a1-v10 -> h-a1-v20",
+        check("h_a1_v10 -> h_a1_v20",
               ping_ok(ha1_10, '10.1.20.20'))
 
         print("\n[3] WAN hub-and-spoke:")
@@ -257,11 +257,11 @@ def main():
         core1 = a1.core1
         # Ambos extremos de cada enlace hacia core1 (equivale a 'link X core1 down' de s7)
         core1_links = [
-            (a1.border_router, 'r-a1-eth1', 'core1-eth0'),
-            (a1.srv_dhcp, 'srv-dhcp-eth0', 'core1-eth2'),
-            (a1.srv_dns, 'srv-dns-eth0', 'core1-eth3'),
-            (a1.srv_web, 'srv-web-eth0', 'core1-eth4'),
-            (a1.srv_ftp, 'srv-ftp-eth0', 'core1-eth5'),
+            (a1.border_router, 'r_a1-eth1', 'core1-eth0'),
+            (a1.srv_dhcp, 'srv_dhcp-eth0', 'core1-eth2'),
+            (a1.srv_dns, 'srv_dns-eth0', 'core1-eth3'),
+            (a1.srv_web, 'srv_web-eth0', 'core1-eth4'),
+            (a1.srv_ftp, 'srv_ftp-eth0', 'core1-eth5'),
         ]
         for node, near, far in core1_links:
             node.cmd(f'ip link set {near} down')
