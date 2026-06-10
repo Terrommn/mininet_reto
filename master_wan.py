@@ -22,9 +22,12 @@ DNS_ZONE = '/tmp/corp_dns.txt'
 #     (que el kernel deja en estado no-matable sobre el namespace ya borrado).
 def dhclient_cmd(host, extra='-v -1'):
     name = host.name
-    return (f'dhclient -4 {extra} '
-            f'-lf /tmp/dhcl-{name}.leases -pf /tmp/dhcl-{name}.pid '
-            f'{name}-eth0')
+    intf = host.defaultIntf().name
+
+    lease = f'/var/lib/dhcp/dhclient-{name}.leases'
+    pid = f'/run/dhclient-{name}.pid'
+
+    return f'dhclient -4 {extra} -lf {lease} -pf {pid} {intf}'
 WAN = [
     ('a2', '10.99.1.1/30', 'r-a1-eth3', '10.99.1.2/30', 10),
     ('b1', '10.99.2.1/30', 'r-a1-eth4', '10.99.2.2/30', 10),

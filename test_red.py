@@ -76,20 +76,18 @@ def dhcp_log_ok(log, prefix):
 
 def start_dhcp_probe(host):
     name = host.name
-    intf = f'{name}-eth0'
+    intf = host.defaultIntf().name
     log = f'/tmp/dhcp-{name}.log'
 
     print(f"  - Probando DHCP en {name} ({intf})...", flush=True)
 
     host.cmd(f'ip addr flush dev {intf}')
-    host.cmd(f'rm -f /tmp/dhcl-{name}.leases /tmp/dhcl-{name}.pid {log}')
     host.cmd(f'pkill -9 -f "[d]hclient.*{intf}" 2>/dev/null || true')
 
-    host.cmd('mkdir -p /etc')
-    host.cmd('touch /etc/fstab')
-    host.cmd('chmod 644 /etc/fstab')
-    host.cmd(f'touch /tmp/dhcl-{name}.leases /tmp/dhcl-{name}.pid')
-    host.cmd(f'chmod 666 /tmp/dhcl-{name}.leases /tmp/dhcl-{name}.pid')
+    host.cmd('mkdir -p /var/lib/dhcp /run')
+    host.cmd(f'rm -f /var/lib/dhcp/dhclient-{name}.leases /run/dhclient-{name}.pid {log}')
+    host.cmd(f'touch /var/lib/dhcp/dhclient-{name}.leases')
+    host.cmd(f'chmod 666 /var/lib/dhcp/dhclient-{name}.leases')
 
     cmd = dhclient_cmd(host)
     host.cmd(f'(timeout -k 2 -s KILL 20 {cmd}) > {log} 2>&1 &')
