@@ -17,15 +17,21 @@ class SiteB2:
         self.switch = None
         self.subifs = []
         self.relay_target = None
+        self.user_hosts = []
 
     def build(self, net):
         self.gateway = net.addHost(self.ROUTER, cls=Router, ip=None)
         self.switch = net.addSwitch(self.SWITCH, failMode='standalone')
         for i, vid in enumerate(self.VLANS, start=1):
             h = net.addHost(f'{self.HOST}{vid}', ip=None, privateDirs=['/etc'])
+            self.user_hosts.append(h)
             net.addLink(h, self.switch, intfName2=f'{self.SWITCH}-eth{i}')
         net.addLink(self.switch, self.gateway,
-                    intfName1=self.TRUNK, intfName2=f'{self.ROUTER}-eth0')
+                    port1=20, intfName2=f'{self.ROUTER}-eth0')
+
+    def rp_intfs(self):
+        return [(self.gateway, f'{self.ROUTER}-eth0'),
+                (self.gateway, self.WAN_INTF)]
 
     def configure(self):
         r, sw = self.gateway, self.switch
