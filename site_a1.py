@@ -23,6 +23,7 @@ class SiteA1:
         self.web_server_ip = '10.1.100.4'
         self.ftp_server_ip = '10.1.100.5'
         self.user_subnet = '10.1.0.0/16'
+        self.user_hosts = []
 
     def build(self, net):
         r = net.addHost('r-a1', cls=Router, ip=None); self.border_router = r
@@ -35,19 +36,30 @@ class SiteA1:
         acc = net.addSwitch('sw-a1', failMode='standalone'); self.switch = acc
         for i, vid in enumerate(self.VLANS, start=1):
             h = net.addHost(f'h-a1-v{vid}', ip=None, privateDirs=['/etc'])
+            self.user_hosts.append(h)
             net.addLink(h, acc, intfName2=f'sw-a1-eth{i}')
-        net.addLink(acc, r, intfName1='sw-a1-eth20', intfName2='r-a1-eth0')
-        net.addLink(r, c1, intfName1='r-a1-eth1', intfName2='core1-eth0')
-        net.addLink(r, c2, intfName1='r-a1-eth2', intfName2='core2-eth0')
-        net.addLink(c1, c2, intfName1='core1-eth1', intfName2='core2-eth1')
-        net.addLink(sd, c1, intfName1='srv-dhcp-eth0', intfName2='core1-eth2')
-        net.addLink(sd, c2, intfName1='srv-dhcp-eth1', intfName2='core2-eth2')
-        net.addLink(sn, c1, intfName1='srv-dns-eth0', intfName2='core1-eth3')
-        net.addLink(sn, c2, intfName1='srv-dns-eth1', intfName2='core2-eth3')
-        net.addLink(sw, c1, intfName1='srv-web-eth0', intfName2='core1-eth4')
-        net.addLink(sw, c2, intfName1='srv-web-eth1', intfName2='core2-eth4')
-        net.addLink(sf, c1, intfName1='srv-ftp-eth0', intfName2='core1-eth5')
-        net.addLink(sf, c2, intfName1='srv-ftp-eth1', intfName2='core2-eth5')
+        net.addLink(acc, r, port1=20, intfName2='r-a1-eth0')
+        net.addLink(r, c1, port1=1, intfName2='core1-eth0')
+        net.addLink(r, c2, port1=2, intfName2='core2-eth0')
+        net.addLink(c1, c2, port1=1, intfName2='core2-eth1')
+        net.addLink(sd, c1, port1=0, intfName2='core1-eth2')
+        net.addLink(sd, c2, port1=1, intfName2='core2-eth2')
+        net.addLink(sn, c1, port1=0, intfName2='core1-eth3')
+        net.addLink(sn, c2, port1=1, intfName2='core2-eth3')
+        net.addLink(sw, c1, port1=0, intfName2='core1-eth4')
+        net.addLink(sw, c2, port1=1, intfName2='core2-eth4')
+        net.addLink(sf, c1, port1=0, intfName2='core1-eth5')
+        net.addLink(sf, c2, port1=1, intfName2='core2-eth5')
+
+    def rp_intfs(self):
+        intfs = [(self.border_router, f'r-a1-eth{n}') for n in range(6)]
+        intfs += [(self.core1, f'core1-eth{n}') for n in range(6)]
+        intfs += [(self.core2, f'core2-eth{n}') for n in range(6)]
+        servers = [(self.srv_dhcp, 'srv-dhcp'), (self.srv_dns, 'srv-dns'),
+                   (self.srv_web, 'srv-web'), (self.srv_ftp, 'srv-ftp')]
+        for node, base in servers:
+            intfs += [(node, f'{base}-eth0'), (node, f'{base}-eth1')]
+        return intfs
 
     def configure(self):
         r, c1, c2 = self.border_router, self.core1, self.core2
