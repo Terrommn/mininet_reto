@@ -37,6 +37,14 @@ def info(desc, ok):
     print(f"  [INFO {'si ' if ok else 'no '}] {desc}")
 
 
+def find_host(sites, name):
+    for s in sites:
+        for h in s.user_hosts:
+            if h.name == name:
+                return h
+    raise KeyError(name)
+
+
 def cleanup():
     os.system('pkill -9 -f "[d]hclient" 2>/dev/null || true')
     os.system('pkill -9 -f "[d]hcrelay" 2>/dev/null || true')
@@ -52,7 +60,7 @@ def ping_ok(src, dst):
 
 
 def host_ip(host):
-    intf = host.defaultIntf().name
+    intf = f'{host.name}-eth0'
     out = host.cmd(f'ip -4 -o addr show {intf}')
     m = re.search(r'inet (10[.][0-9.]+)', out)
     return m.group(1) if m else None
@@ -68,7 +76,7 @@ def dhcp_log_ok(log, prefix):
 
 def start_dhcp_probe(host):
     name = host.name
-    intf = host.defaultIntf().name
+    intf = f'{name}-eth0'
     log = f'/tmp/dhcp-{name}.log'
 
     print(f"  - Probando DHCP en {name} ({intf})...", flush=True)
@@ -92,7 +100,7 @@ def read_dhcp_log(host):
 
 
 def set_static(host, ip, gw):
-    intf = host.defaultIntf().name
+    intf = f'{host.name}-eth0'
     host.cmd(f'pkill -9 -f "[d]hclient.*{intf}" 2>/dev/null || true')
     host.cmd(f'ip addr flush dev {intf}')
     host.cmd(f'ip addr add {ip}/24 dev {intf}')
@@ -114,7 +122,7 @@ def build(net):
         net.addLink(
             a1.border_router,
             sp.gateway,
-            intfName1=intf_hub,
+            port1=int(intf_hub.rsplit('eth', 1)[1]),
             intfName2=sp.WAN_INTF,
             bw=bw,
             delay='10ms',
@@ -137,8 +145,8 @@ def build(net):
         r.cmd(f'ip route replace 10.{sp.SITE_ID}.0.0/16 via {ip_spoke.split("/")[0]} dev {intf_hub}')
         sp.gateway.cmd(f'ip route replace default via {ip_hub.split("/")[0]} dev {sp.WAN_INTF}')
 
-    harden_rp_filter(net)
-    prep_resolv(net)
+    harden_rp_filter(sites)
+    prep_resolv(sites)
     write_configs(sites)
 
     a1.start_services(DHCP_CONF, DNS_CONF)
@@ -147,7 +155,7 @@ def build(net):
         s.relay_target = a1.dhcp_server_ip
         s.start_relay()
 
-    return net
+    return sites
 
 
 def main():
@@ -163,17 +171,17 @@ def main():
     )
 
     print("== Levantando la red (4 sedes) ...")
-    build(net)
+    sites = build(net)
 
     try:
         print("== Esperando servicios base (dnsmasq / web / ftp / relay) ...")
         time.sleep(5)
 
-        ha1_10 = net.get('h-a1-v10')
-        ha1_20 = net.get('h-a1-v20')
-        ha2 = net.get('h-a2-v40')
-        hb1 = net.get('h-b1-v50')
-        hb2 = net.get('h-b2-v60')
+        ha1_10 = find_host(sites, 'h-a1-v10')
+        ha1_20 = find_host(sites, 'h-a1-v20')
+        ha2 = find_host(sites, 'h-a2-v40')
+        hb1 = find_host(sites, 'h-b1-v50')
+        hb2 = find_host(sites, 'h-b2-v60')
 
         test_hosts = [
             (ha1_10, '10.1.10.', '10.1.10.10', '10.1.10.254'),
@@ -247,16 +255,28 @@ def main():
 
         print("\n[7] Redundancia del doble nucleo:")
         print("    (informativo: con rutas estaticas el failover depende del kernel)")
-        for d in ('r-a1', 'srv-dhcp', 'srv-dns', 'srv-web', 'srv-ftp'):
-            net.configLinkStatus(d, 'core1', 'down')
+        a1 = sites[0]
+        core1 = a1.core1
+        # Ambos extremos de cada enlace hacia core1 (equivale a 'link X core1 down' de s7)
+        core1_links = [
+            (a1.border_router, 'r-a1-eth1', 'core1-eth0'),
+            (a1.srv_dhcp, 'srv-dhcp-eth0', 'core1-eth2'),
+            (a1.srv_dns, 'srv-dns-eth0', 'core1-eth3'),
+            (a1.srv_web, 'srv-web-eth0', 'core1-eth4'),
+            (a1.srv_ftp, 'srv-ftp-eth0', 'core1-eth5'),
+        ]
+        for node, near, far in core1_links:
+            node.cmd(f'ip link set {near} down')
+            core1.cmd(f'ip link set {far} down')
 
         time.sleep(2)
 
         info("A2 -> servidor sigue respondiendo via core2",
              ping_ok(ha2, '10.1.100.4'))
 
-        for d in ('r-a1', 'srv-dhcp', 'srv-dns', 'srv-web', 'srv-ftp'):
-            net.configLinkStatus(d, 'core1', 'up')
+        for node, near, far in core1_links:
+            node.cmd(f'ip link set {near} up')
+            core1.cmd(f'ip link set {far} up')
 
     finally:
         total = len(PASS) + len(FAIL)
@@ -275,4 +295,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-PY
