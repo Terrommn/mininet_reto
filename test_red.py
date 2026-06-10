@@ -13,7 +13,8 @@ from site_a1 import SiteA1
 from site_a2 import SiteA2
 from site_b1 import SiteB1
 from site_b2 import SiteB2
-from master_wan import WAN, write_configs, DHCP_CONF, DNS_CONF
+from master_wan import (WAN, write_configs, DHCP_CONF, DNS_CONF,
+                        dhclient_cmd, harden_rp_filter, prep_resolv)
 
 PASS = []
 FAIL = []
@@ -40,8 +41,8 @@ def host_ip(host):
 
 
 def dhcp(host):
-    intf = host.defaultIntf().name
-    host.cmd(f'timeout 20 dhclient -v {intf} > /dev/null 2>&1')
+    host.cmd(f'rm -f /tmp/dhcl-{host.name}.leases')
+    host.cmd(f'timeout -s KILL 25 {dhclient_cmd(host)} > /dev/null 2>&1')
 
 
 def build(net):
@@ -66,6 +67,8 @@ def build(net):
         sp = spokes[key]
         r.cmd(f'ip route replace 10.{sp.SITE_ID}.0.0/16 via {ip_spoke.split("/")[0]} dev {intf_hub}')
         sp.gateway.cmd(f'ip route replace default via {ip_hub.split("/")[0]} dev {sp.WAN_INTF}')
+    harden_rp_filter(net)
+    prep_resolv(net)
     write_configs(sites)
     a1.start_services(DHCP_CONF, DNS_CONF)
     for s in sites:
@@ -75,12 +78,16 @@ def build(net):
 
 
 def cleanup():
-    for pat in ('dhcp_corp', 'dns_corp', 'pyftpdlib', 'http.server'):
+    # dnsmasq (match por su conf), relay, ftp y web. Incluye dhcrelay: si una
+    # corrida previa muere sin limpiar, sus relays quedan vivos sobre interfaces
+    # con el mismo nombre y contaminan el DHCP de la siguiente (OFFERs perdidos).
+    for pat in ('dhcp_corp', 'dns_corp', 'dhcrelay', 'pyftpdlib', 'http.server'):
         os.system(f'pkill -f {pat} 2>/dev/null')
 
 
 def main():
     setLogLevel('warning')   # menos ruido de Mininet
+    cleanup()                # limpia daemons de una corrida previa que muriera
     net = Mininet(controller=None, switch=OVSSwitch, link=TCLink,
                   autoSetMacs=True, autoStaticArp=False)
     print("== Levantando la red (4 sedes) ...")

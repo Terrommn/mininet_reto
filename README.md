@@ -131,7 +131,7 @@ mininet> r-a2 ping -c2 10.3.50.254          # spoke A2 -> gateway en spoke B1 (t
 Primero un host concreto, para ver el proceso DORA:
 
 ```text
-mininet> h-b1-v50 dhclient -v h-b1-v50-eth0
+mininet> h-b1-v50 dhclient -v -1 -lf /tmp/dhcl-h-b1-v50.leases -pf /tmp/dhcl-h-b1-v50.pid h-b1-v50-eth0
 mininet> h-b1-v50 ip -4 addr show h-b1-v50-eth0
 ```
 **Esperado:** el host obtiene una IP en `10.3.50.50–10.3.50.150` y gateway `10.3.50.254`.
@@ -144,7 +144,8 @@ mininet> srv-dhcp tail -n 25 /tmp/dhcp_corp.log
 Ahora **pide DHCP en TODOS los hosts de usuario de una vez** (one-liner Python en la CLI):
 
 ```text
-mininet> py [h.cmd('dhclient -nw ' + h.defaultIntf().name) for h in net.hosts if h.name.startswith('h-')]
+mininet> py from master_wan import dhclient_cmd
+mininet> py [h.cmd(dhclient_cmd(h, extra='-nw')) for h in net.hosts if h.name.startswith('h-')]
 ```
 Espera ~10 segundos y verifica un par de sedes:
 
@@ -263,7 +264,8 @@ sudo pkill -f dnsmasq ; sudo pkill -f dhcrelay ; sudo pkill -f pyftpdlib   # por
 
 | Síntoma | Causa probable / solución |
 |---|---|
-| El host no obtiene IP por DHCP | Corre `dhclient -v <host>-eth0` y mira `srv-dhcp tail -f /tmp/dhcp_corp.log`. Asegúrate de haber hecho las pruebas de routing (4.2) antes; el relay necesita las rutas para el camino de retorno. |
+| El host no obtiene IP por DHCP | Usa siempre la forma con `-sf/-lf/-pf` del paso 4.3 y mira `srv-dhcp tail -f /tmp/dhcp_corp.log`. Asegúrate de haber hecho las pruebas de routing (4.2) antes; el relay necesita las rutas para el camino de retorno. |
+| `dhclient` se queda en bucle DISCOVER/ACK/DECLINE | Se invocó `dhclient` "a pelo" (sin `-lf`/`-pf` privados): al compartir `/var/lib/dhcp` entre hosts, dhclient confunde su estado con un conflicto y rechaza cada IP con DHCPDECLINE. Usa `dhclient_cmd()` de `master_wan.py` o las opciones del paso 4.3. |
 | `curl ftp://...` no responde | Verifica que `pyftpdlib` esté instalado (`srv-ftp cat /tmp/ftp_share/ftp.log`; si dice *No module named pyftpdlib*, instala el paquete del paso 2). |
 | `dig`/`curl` por FQDN falla pero por IP funciona | Falta el DNS en el host: corre primero el DHCP (4.3); o usa `dig @10.1.100.3 ...` explícito. |
 | Errores al arrancar / "interface exists" | Quedó una corrida previa: `sudo mn -c` y vuelve a lanzar. |

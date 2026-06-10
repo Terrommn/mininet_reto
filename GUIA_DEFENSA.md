@@ -87,7 +87,7 @@ self.cmd('sysctl -w net.ipv4.conf.all.rp_filter=0')# permite caminos asimétrico
 self.cmd('modprobe 8021q')                          # habilita subinterfaces VLAN (802.1Q)
 ```
 - `ip_forward=1`: sin esto, un host Linux **descarta** el tráfico que no es para él. Con esto, lo **reenvía** = se comporta como router.
-- `rp_filter=0`: el "filtro de ruta inversa" descarta paquetes que entran por una interfaz por la que no saldría la respuesta. Como con ECMP el tráfico puede **entrar por un núcleo y salir por el otro**, hay que apagarlo. (Esto se explica en s7.)
+- `rp_filter=0`: el "filtro de ruta inversa" descarta paquetes que entran por una interfaz por la que no saldría la respuesta. Como con ECMP el tráfico puede **entrar por un núcleo y salir por el otro**, hay que apagarlo. (Esto se explica en s7.) ⚠️ **Ojo:** ponerlo solo a nivel `all` (como hace esta clase) **no basta**; el kernel usa `max(all, interfaz)` y cada interfaz hereda el modo *loose*. El integrador lo fuerza en **cada** interfaz — ver §6.5.
 - `modprobe 8021q`: carga el módulo del kernel que permite crear las subinterfaces `eth0.10`, etc.
 
 > Es **casi idéntica** a la clase `Router` de la práctica s7 (le añadimos `modprobe 8021q` de s3).
@@ -156,7 +156,9 @@ Es el único que se ejecuta (`sudo python3 master_wan.py`). Hace, **en orden**:
    r.cmd('ip route replace 10.2.0.0/16 via 10.99.1.2 dev r-a1-eth3')   # R-A1 -> GDL
    a2.gateway.cmd('ip route replace default via 10.99.1.1 dev r-a2-eth1') # GDL -> todo via HUB
    ```
-5. Genera las configs (`/tmp/dhcp_corp.conf`, zona DNS), arranca servicios y `dhcrelay`.
+5. **Endurece el `rp_filter`** (`rp_filter=0` en cada interfaz de cada router, §6.5) y
+   **prepara `/etc/resolv.conf`** en cada host (§7), genera las configs
+   (`/tmp/dhcp_corp.conf`, zona DNS), y arranca servicios y `dhcrelay`.
 6. Abre la CLI.
 
 > Es **literalmente** el patrón de s7 (`site_a.py`, `site_b.py`, `master_wan.py`), escalado a 4 sedes.
@@ -237,6 +239,20 @@ via WAN` → lo manda a QRO. **El hub hace de tránsito** (por eso necesita `ip_
 El relay debe escuchar en las subinterfaces de VLAN (donde llega el DISCOVER) **y** en la
 interfaz por donde **vuelve** el OFFER del servidor (la WAN). Por eso la incluimos en `-i`.
 
+### 6.5 `rp_filter` no basta a nivel `all`: hay que forzarlo por interfaz (otro detalle fino)
+- **El problema:** la clase `Router` pone `net.ipv4.conf.all.rp_filter=0`, pero el kernel
+  decide con `rp_filter efectivo = max(conf.all, conf.<interfaz>)`. Las interfaces (sobre todo
+  las de la WAN, creadas más tarde) heredan `2` (modo *loose*) del sistema, así que el efectivo
+  se queda en `2` aunque `all` sea `0`.
+- **El síntoma que provocó:** en modo *loose*, R-A1 **descartaba en la ida** el OFFER del DHCP
+  hacia los spokes, porque ese OFFER sale con la IP de infraestructura del servidor
+  (`172.16.1.x`), que R-A1 no sabe enrutar de vuelta. Resultado: A1 obtenía IP, pero A2/B1/B2 no.
+- **La solución:** `harden_rp_filter()` en `master_wan.py` recorre **cada** interfaz de cada
+  router y le pone `rp_filter=0` después de construir todo.
+> Si te preguntan por esto, demuestra que entiendes que `rp_filter` es **por interfaz** y que
+> `all` es solo un "piso". Es el gemelo del punto `ip=None` (§6.3): un detalle de kernel que
+> rompe la red de formas no obvias.
+
 ---
 
 ## 7. Limitaciones honestas (menciónalas tú antes de que te las pregunten)
@@ -249,6 +265,8 @@ interfaz por donde **vuelve** el OFFER del servidor (la WAN). Por eso la incluim
 | El WiFi no se emula como tal | Mininet base no tiene radio; las VLANs WiFi (130/140) se representan como un host cableado en esa VLAN. |
 | No hay Internet/NAT real | No era necesario para DHCP/DNS/Web/FTP; los spokes apuntan su default al hub. |
 | `pingall` no da 100% | Las IP de servicio están en `lo` y los `/30` internos no se anuncian globalmente (por diseño). Se valida con pruebas dirigidas. |
+| El DNS lo **sembramos** en `/etc/resolv.conf` | El servidor DHCP **sí** anuncia el DNS (`10.1.100.3`, opción `dns-server`; se ve en sus logs), pero dentro del host de Mininet `dhclient` no puede escribir `resolv.conf` (es un symlink a una ruta de `systemd-resolved` que no existe ahí). Sembramos ese mismo valor para que la resolución por FQDN sea fiable. |
+| `dhclient` con lease/pid privados + `-1` + `timeout -s KILL` | Artefacto de Mininet: los hosts comparten `/var/lib/dhcp` (lo que provoca un `DHCPDECLINE` en bucle) y `dhclient` deja procesos huérfanos no-matables. Lease privado por host y un solo intento lo resuelven. |
 
 ---
 
@@ -332,7 +350,8 @@ R: Sí: DHCP/DNS con `dnsmasq` (s8/s9), Web con `http.server` (s7/s9), FTP con `
 
 **P: ¿Qué hace `rp_filter=0`?**
 R: Apaga el filtro de ruta inversa para permitir caminos asimétricos (entrar por un núcleo,
-salir por otro), necesario con ECMP. (s7)
+salir por otro), necesario con ECMP. (s7) **Importante:** no basta a nivel `all`; el kernel usa
+`max(all, interfaz)`, así que hay que ponerlo en **cada** interfaz (ver §6.5).
 
 **P: ¿Y si `pingall` no da 100%?**
 R: Es esperado: las IP de servicio están en `lo` y los `/30` internos no se anuncian
@@ -345,7 +364,7 @@ globalmente. La conectividad real se valida con pruebas dirigidas (ver README).
 | Comando | Qué hace |
 |---|---|
 | `sysctl -w net.ipv4.ip_forward=1` | Hace que el equipo **enrute** (se comporte como router). |
-| `sysctl -w net.ipv4.conf.all.rp_filter=0` | Permite caminos asimétricos (para ECMP). |
+| `sysctl -w net.ipv4.conf.all.rp_filter=0` | Permite caminos asimétricos (para ECMP). **No basta solo:** hay que ponerlo también por interfaz (`max(all, intf)`, ver §6.5). |
 | `modprobe 8021q` | Carga el soporte de VLANs 802.1Q en el kernel. |
 | `ip link add link eth0 name eth0.10 type vlan id 10` | Crea la **subinterfaz** de la VLAN 10. |
 | `ip addr add 10.1.10.254/24 dev eth0.10` | Le pone la IP de **gateway** a esa subinterfaz. |

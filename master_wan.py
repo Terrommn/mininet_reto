@@ -13,6 +13,19 @@ from site_b2 import SiteB2
 DHCP_CONF = '/tmp/dhcp_corp.conf'
 DNS_CONF = '/tmp/dns_corp.conf'
 DNS_ZONE = '/tmp/corp_dns.txt'
+
+# dhclient se invoca SIEMPRE con estas opciones dentro de los hosts:
+#  -lf/-pf privados por host: /var/lib/dhcp es compartido por todos los hosts
+#     (solo /etc es privado). Con el lease compartido, dhclient confunde su
+#     propio estado con un conflicto y manda DHCPDECLINE en bucle infinito
+#     rechazando cada IP ofrecida; con lease privado el DORA cierra limpio.
+#  -1: un solo intento; junto con 'timeout -s KILL' evita dhclient huerfanos
+#     (que el kernel deja en estado no-matable sobre el namespace ya borrado).
+def dhclient_cmd(host, extra='-v -1'):
+    name = host.name
+    return (f'dhclient -4 {extra} '
+            f'-lf /tmp/dhcl-{name}.leases -pf /tmp/dhcl-{name}.pid '
+            f'{host.defaultIntf().name}')
 WAN = [
     ('a2', '10.99.1.1/30', 'r-a1-eth3', '10.99.1.2/30', 10),
     ('b1', '10.99.2.1/30', 'r-a1-eth4', '10.99.2.2/30', 10),
@@ -40,6 +53,38 @@ def write_configs(sites):
         f.write(f'no-hosts\nno-resolv\nlog-queries\naddn-hosts={DNS_ZONE}\n')
 
 
+def prep_resolv(net):
+    # En Ubuntu /etc/resolv.conf es un symlink a /run/systemd/resolve/stub-
+    # resolv.conf, ruta que NO existe dentro del host de Mininet (no corre
+    # systemd-resolved), y ademas dhclient-script no logra escribir el DNS en
+    # este namespace recortado. Resultado: 'dig web.corp.local' sin @ falla
+    # aunque el servidor DHCP SI anuncia el DNS (option dns-server 10.1.100.3,
+    # ver write_configs y los logs de srv-dhcp). Como cada host tiene /etc
+    # privado (privateDirs=['/etc']), sembramos resolv.conf con ese mismo DNS
+    # para que la resolucion por FQDN funcione de forma fiable.
+    for h in net.hosts:
+        if h.name.startswith('h-'):
+            h.cmd('rm -f /etc/resolv.conf')
+            h.cmd('echo "nameserver 10.1.100.3" > /etc/resolv.conf')
+
+
+def harden_rp_filter(net):
+    # rp_filter efectivo = max(conf.all, conf.<intf>). La clase Router pone
+    # all/default=0, pero las interfaces (incluidas las del WAN, creadas mas
+    # tarde) heredan 2 (modo loose) del sistema, asi que el efectivo queda en 2.
+    # En modo loose, r-a1 DESCARTA en la IDA los paquetes cuyo origen no es
+    # enrutable de vuelta: los servidores originan desde su IP de infra
+    # 172.16.1.x (que r-a1 no sabe enrutar), por lo que el OFFER de DHCP hacia
+    # los spokes se cae. Forzamos 0 en TODA interfaz de cada nodo que enruta.
+    for node in net.hosts:
+        if isinstance(node, Router):
+            node.cmd('echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter')
+            node.cmd('echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter')
+            for intf in node.intfList():
+                if intf.name != 'lo':
+                    node.cmd(f'echo 0 > /proc/sys/net/ipv4/conf/{intf.name}/rp_filter')
+
+
 def main():
     net = Mininet(controller=None, switch=OVSSwitch, link=TCLink,
                   autoSetMacs=True, autoStaticArp=False)
@@ -65,6 +110,8 @@ def main():
     a2.gateway.cmd('ip route replace default via 10.99.1.1 dev r-a2-eth1')
     b1.gateway.cmd('ip route replace default via 10.99.2.1 dev r-b1-eth1')
     b2.gateway.cmd('ip route replace default via 10.99.3.1 dev r-b2-eth1')
+    harden_rp_filter(net)
+    prep_resolv(net)
     write_configs(sites)
     a1.start_services(DHCP_CONF, DNS_CONF)
     for s in sites:
